@@ -1,0 +1,13 @@
+{
+    ".url": {
+        "anydoor2.Web": {
+            "title": "任意门",
+            "icon": "images/icon_256.png",
+            "type": "iframe",
+            "protocol": "http",
+            "port": "8999",
+            "url": "/",
+            "allUsers": true
+        }
+    }
+}

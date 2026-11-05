@@ -1,0 +1,13 @@
+appname               = anydoor
+version               = 0.0.2
+display_name          = 任意门
+desc                  = 把任意内网 Web 界面（路由器、光猫、NAS、交换机、OA 等）一键变成飞牛桌面上的独立小窗应用，支持公网访问与图标自定义。
+arch                  = x86_64
+platform              = all
+source                = thirdparty
+maintainer            = AnyDoor
+distributor           = AnyDoor
+os_min_version        = 0.9.0
+install_type          = root
+desktop_uidir         = ui
+desktop_applaunchname = anydoor.Web
