@@ -87,8 +87,8 @@ def load_state():
         for s in d.get("sites", []):
             _sites[s["id"]] = s
         t = d.get("temp") or {}
-        for k in ("host", "target_port", "scheme", "local_port"):
-            if t.get(k):
+        for k in ("host", "target_port", "scheme", "local_port", "hidden"):
+            if k in t:
                 TEMP[k] = t[k]
     except Exception:
         pass
@@ -99,7 +99,8 @@ def save_state():
     tmp = STATE + ".tmp"
     with open(tmp, "w") as f:
         json.dump({"sites": sorted(_sites.values(), key=lambda x: x["id"]),
-                   "temp": {k: TEMP.get(k) for k in ("host", "target_port", "scheme", "local_port")}},
+                   "temp": {k: TEMP.get(k) for k in ("host", "target_port", "scheme",
+                                                     "local_port", "hidden")}},
                   f, ensure_ascii=False, indent=2)
     os.replace(tmp, STATE)
 
@@ -875,10 +876,71 @@ def reconcile_full_urls():
         sys.stderr.write("reconcile full_url: %s\n" % e)
 
 
+def set_no_display(service_name, hidden, tries=8):
+    """秒级开关：改飞牛 app_service.no_display，控制桌面图标显示与否。
+    这是飞牛自己的机制（WatchCow 的主服务就是这么隐藏的），
+    不卸载应用、不重装，重进桌面即生效。"""
+    sql = "/tmp/anydoor_nodisp.sql"
+    chk = "/tmp/anydoor_nodisp_chk.sql"
+    val = "true" if hidden else "false"
+    try:
+        with open(sql, "w") as f:
+            f.write("update app_service set no_display = %s where service_name = %s;\n"
+                    % (val, _sql_lit(service_name)))
+        with open(chk, "w") as f:
+            f.write("select no_display from app_service where service_name = %s;\n"
+                    % _sql_lit(service_name))
+        for _ in range(tries):
+            subprocess.run(["sh", "-c", "su postgres -c 'psql -d appcenter -q -f %s'" % sql],
+                           capture_output=True, text=True, timeout=15)
+            r = subprocess.run(["sh", "-c", "su postgres -c 'psql -d appcenter -tAf %s'" % chk],
+                               capture_output=True, text=True, timeout=15)
+            got = (r.stdout or "").strip().lower()
+            if got in ("t", "true") if hidden else got in ("f", "false", ""):
+                return True
+            time.sleep(1)
+        return False
+    except Exception as e:
+        sys.stderr.write("no_display %s: %s\n" % (service_name, e))
+        return False
+
+
+def installed_apps():
+    """一次 appcenter-cli list，返回已安装应用名集合（给列表页算三格状态用）。"""
+    try:
+        r = subprocess.run(["sh", "-c", "appcenter-cli list 2>/dev/null"],
+                           capture_output=True, text=True, timeout=20)
+        return set((r.stdout or "").split())
+    except Exception:
+        return set()
+
+
+def service_map():
+    """app_service 里所有站点应用的 (full_url, no_display)，一次 SQL 全查。
+    返回 {'adxxx.Web': ('https://...', False), ...}"""
+    sql = "/tmp/anydoor_svcmap.sql"
+    try:
+        with open(sql, "w") as f:
+            f.write("select service_name, coalesce(full_url,''), no_display "
+                    "from app_service where service_name like 'ad%%.Web';\n")
+        r = subprocess.run(["sh", "-c", "su postgres -c 'psql -d appcenter -t -A -F \"|\" -f %s'" % sql],
+                           capture_output=True, text=True, timeout=20)
+        out = {}
+        for line in (r.stdout or "").splitlines():
+            bits = line.split("|")
+            if len(bits) >= 3:
+                out[bits[0]] = (bits[1], bits[2].strip().lower() in ("t", "true"))
+        return out
+    except Exception as e:
+        sys.stderr.write("service_map: %s\n" % e)
+        return {}
+
+
 # ---------------- 后台任务（给界面看的进度） ----------------
 
 JOBS = {}
 _job_seq = [0]
+_site_jobs = {}      # appname -> 最近一次任务的 jid（给列表页三格进度用）
 
 
 def job_new(title, total=3):
@@ -933,6 +995,8 @@ def app_installed(appname):
 def install_app(site, reinstall=True, jid=None):
     """生成并安装桌面空壳应用。jid 给了就把每一步进度写进去，界面轮询显示。"""
     try:
+        if jid:
+            _site_jobs[site["app"]] = jid
         job_step(jid, "生成应用包", "打包图标与桌面入口")
         fpk = build_app(site)
         if not os.path.isfile(fpk):
@@ -955,6 +1019,9 @@ def install_app(site, reinstall=True, jid=None):
                 set_full_url(svc(site["app"]), public_url(site["app"]))
             except Exception as e:
                 sys.stderr.write("full_url 失败 %s: %s\n" % (site["app"], e))
+            # 重装会重建 app_service 行、no_display 复位，隐藏过的站点要写回去
+            if site.get("hidden"):
+                set_no_display(svc(site["app"]), True)
             job_done(jid, True, "已更新")
         else:
             job_done(jid, False, out.strip()[-60:] or "安装失败")
@@ -1050,8 +1117,8 @@ a{color:var(--pri);text-decoration:none}
 
 /* ---------- 列表 ---------- */
 .list{background:var(--bg1);border:1px solid var(--card);border-radius:12px;overflow:hidden}
-.row{display:grid;grid-template-columns:40px minmax(0,1fr) 84px 76px 132px;align-items:center;
-  gap:14px;padding:11px 16px;border-top:1px solid var(--card);cursor:pointer;
+.row{display:grid;grid-template-columns:40px minmax(0,1fr) 96px 70px 40px 118px;align-items:center;
+  gap:12px;padding:11px 16px;border-top:1px solid var(--card);cursor:pointer;
   transition:background .12s}
 .row:first-child{border-top:0}
 .row:hover{background:var(--nav)}
@@ -1074,6 +1141,23 @@ a{color:var(--pri);text-decoration:none}
 .chip.bad{background:rgba(219,56,44,.08);color:var(--bad)}
 .chip.unk{background:var(--fill1);color:var(--t2)}
 .chip.off{background:var(--fill1);color:var(--t3)}
+/* 行内状态区：chip + 三格电量（图标 / 桌面应用 / 外网地址） */
+.rstat{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:84px}
+.stages{display:flex;gap:3px;align-items:center}
+.stages .cell{width:15px;height:5px;border-radius:3px;background:var(--fill1);transition:background .2s}
+.stages .cell.on{background:var(--ok)}
+.stages .cell.bad{background:var(--bad)}
+.stages .cell.busy{background:var(--pri);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+/* 行尾开关 */
+.rtoggle{display:flex;justify-content:center}
+.tgl{position:relative;width:34px;height:19px;border-radius:10px;border:0;cursor:pointer;
+  background:var(--fill1);transition:background .15s;padding:0}
+.tgl i{position:absolute;left:2px;top:2px;width:15px;height:15px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(11,11,12,.25);transition:left .15s}
+.tgl.on{background:var(--pri)}
+.tgl.on i{left:17px}
+.tgl:hover{filter:brightness(.97)}
 
 /* ---------- 空状态 ---------- */
 .empty{background:var(--bg1);border:1px dashed var(--border);border-radius:12px;padding:56px 24px;
@@ -1225,8 +1309,9 @@ a{color:var(--pri);text-decoration:none}
   .content{padding:20px 22px 48px}
 }
 @media (max-width:900px){
-  .row{grid-template-columns:36px minmax(0,1fr) auto 116px;gap:10px;padding:10px 14px}
+  .row{grid-template-columns:36px minmax(0,1fr) auto 40px 112px;gap:10px;padding:10px 14px}
   .row .rport{display:none}
+  .row .rstat{min-width:0}
   .ric{width:36px;height:36px;border-radius:9px}
   .side{width:172px}
   .page-head h2{font-size:18px}
@@ -1242,6 +1327,7 @@ a{color:var(--pri);text-decoration:none}
   .nav-item .cnt{display:none}
   .content{padding:16px 14px 40px}
   .row{grid-template-columns:34px minmax(0,1fr) auto 104px;gap:8px}
+  .row .rtoggle{display:none}
   .grid2{grid-template-columns:1fr}
   .dlg-h,.dlg-b,.dlg-f{padding-left:16px;padding-right:16px}
 }
@@ -1460,10 +1546,10 @@ a{color:var(--pri);text-decoration:none}
           <div class="ac"><button class="btn ghost sm" onclick="appOp('reinstall')">重装</button></div></div>
         <div class="arow"><div><div class="at">刷新外网地址</div><div class="ad">重新写入飞牛的应用入口地址</div></div>
           <div class="ac"><button class="btn ghost sm" onclick="appOp('refresh')">刷新</button></div></div>
-        <div class="arow"><div><div class="at" id="s_toggleT">停用</div><div class="ad">停用会卸载桌面应用，站点数据保留</div></div>
-          <div class="ac"><button class="btn ghost sm" id="s_toggleB" onclick="appOp('toggle')">停用</button></div></div>
         <div class="arow"><div><div class="at">清除本站 Cookie</div><div class="ad">登录串味、白屏时用，会退出该站登录</div></div>
           <div class="ac"><a class="btn ghost sm" id="s_clear" target="_blank" rel="noopener">清除</a></div></div>
+        <div class="arow"><div><div class="at" id="s_dispT">桌面图标显示中</div><div class="ad">在列表行尾的开关里也可以切换</div></div>
+          <div class="ac"><button class="btn ghost sm" id="s_dispB" onclick="toggleFromDlg()">隐藏图标</button></div></div>
       </div>
     </div>
     <div class="dlg-f">
@@ -1558,10 +1644,63 @@ function go(p){
 
 /* ---------- 列表 ---------- */
 function chipHtml(h, dis){
-  if (dis) return '<span class="chip off"><i class="d"></i>已停用</span>';
+  if (dis) return '<span class="chip off"><i class="d"></i>已隐藏</span>';
   if (!h || h.ok === null || h.ok === undefined) return '<span class="chip unk"><i class="d"></i>未检测</span>';
   var cls = h.ok ? "ok" : "bad", txt = h.ok ? "正常" : "连不上";
   return '<span class="chip ' + cls + '" title="' + esc(h.msg) + '"><i class="d"></i>' + txt + '</span>';
+}
+var STAGE_LABEL = {icon:"应用图标", app:"桌面应用", pub:"外网地址"};
+function stagesHtml(s, busyStep){
+  var st = s.stages || {};
+  var out = '<div class="stages" title="就绪状态：图标 / 桌面应用 / 外网地址">';
+  ["icon","app","pub"].forEach(function(k, i){
+    var cls = "cell";
+    if (busyStep !== undefined){
+      if (i < busyStep) cls += " on";
+      else if (i === busyStep) cls += " busy";
+    } else {
+      cls += st[k] ? " on" : "";
+    }
+    out += '<span class="' + cls + '" title="' + STAGE_LABEL[k]
+      + (busyStep !== undefined ? "" : (st[k] ? "：就绪" : "：未就绪")) + '"></span>';
+  });
+  return out + '</div>';
+}
+function rowStagesEl(app){
+  var row = document.querySelector('.row[data-app="' + app + '"]');
+  return row ? row.querySelector(".stages") : null;
+}
+function watchRow(app, jid){
+  var total = 3, el = rowStagesEl(app);
+  function paint(step, totalN){
+    el = rowStagesEl(app);
+    if (!el) return;
+    var html = '<div class="stages" title="就绪状态：图标 / 桌面应用 / 外网地址">';
+    for (var i = 0; i < (totalN || 3); i++){
+      var c = "cell";
+      if (i < step) c += " on"; else if (i === step) c += " busy";
+      html += '<span class="' + c + '"></span>';
+    }
+    el.outerHTML = html;
+  }
+  function tick(){
+    fetch("/job?id=" + encodeURIComponent(jid))
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (!j || j.error) return;
+      paint(j.step || 0, j.total);
+      if (j.state === "running"){ setTimeout(tick, 800); return; }
+      if (j.state === "done"){
+        toast("「" + app + "」已就绪");
+        setTimeout(function(){ location.reload(); }, 900);
+      } else {
+        toast("失败：" + (j.detail || j.text || "未知原因"), true);
+        setTimeout(function(){ location.reload(); }, 2600);
+      }
+    })
+    .catch(function(){ setTimeout(tick, 1500); });
+  }
+  if (el) tick();
 }
 function renderSites(){
   $("cnt").textContent = D.sites.length;
@@ -1574,16 +1713,23 @@ function renderSites(){
   var out = '<div class="list">';
   D.sites.forEach(function(s){
     var sub = s.scheme + "://" + s.host + ":" + s.target_port + (s.base_path || "");
-    out += '<div class="row' + (s.disabled ? " dim" : "") + '" data-id="' + esc(s.id) + '">'
+    var busy = (s.job && s.job.state === "running") ? s.job.step : undefined;
+    out += '<div class="row' + (s.hidden ? " dim" : "") + '" data-id="' + esc(s.id) + '" data-app="' + esc(s.app) + '">'
       + '<img class="ric" src="' + esc(s.icon) + '" alt="" onerror="this.style.visibility=hidden">'
       + '<div class="rmain"><div class="rname">' + esc(s.name) + '</div><div class="rsub">' + esc(sub) + '</div></div>'
-      + chipHtml(s.health, s.disabled)
+      + '<div class="rstat">' + chipHtml(s.health, s.hidden) + stagesHtml(s, busy) + '</div>'
       + '<div class="rport"><span class="pill">:' + s.local_port + '</span></div>'
+      + '<div class="rtoggle"><button class="tgl' + (s.hidden ? "" : " on") + '" data-tgl title="'
+      + (s.hidden ? "图标已隐藏，点击显示" : "隐藏桌面图标（不卸载，秒级生效）") + '"><i></i></button></div>'
       + '<div class="racts"><a class="btn ghost sm" data-open href="' + esc(s.local_url) + '" target="_blank" rel="noopener">打开</a>'
       + '<button class="btn text sm" data-act="edit">设置</button></div>'
       + '</div>';
   });
   $("sitesBox").innerHTML = out + "</div>";
+  // 恢复仍在跑的任务的行内轮询
+  D.sites.forEach(function(s){
+    if (s.job && s.job.state === "running") watchRow(s.app, s.job.id);
+  });
 }
 
 /* ---------- 网址识别 ----------
@@ -1739,10 +1885,32 @@ function openSite(id){
   $("s_locOpen").href = cur.local_url;
   $("s_clear").href = cur.local_url + "__anydoor_clear";
   $("s_msg").textContent = "";
-  $("s_toggleT").textContent = cur.disabled ? "启用" : "停用";
-  $("s_toggleB").textContent = cur.disabled ? "启用" : "停用";
+  $("s_dispT").textContent = cur.hidden ? "桌面图标已隐藏" : "桌面图标显示中";
+  $("s_dispB").textContent = cur.hidden ? "显示图标" : "隐藏图标";
   glyph = "router"; bg = COLORS[0]; iconDirty = false;
   show("maskSite");
+}
+function toggleFromDlg(){
+  if (!cur) return;
+  var b = $("s_dispB");
+  b.disabled = true;
+  postJson("/app/op", {id:cur.id, op:"toggle"}).then(function(r){
+    b.disabled = false;
+    if (r.error){ toast(r.error, true); return; }
+    cur.hidden = r.hidden;
+    $("s_dispT").textContent = r.hidden ? "桌面图标已隐藏" : "桌面图标显示中";
+    $("s_dispB").textContent = r.hidden ? "显示图标" : "隐藏图标";
+    var chip = chipHtml(cur.health, r.hidden);
+    $("s_chip").innerHTML = chip;
+    var row = document.querySelector('.row[data-id="' + cur.id + '"]');
+    if (row){
+      row.classList.toggle("dim", !!r.hidden);
+      var t = row.querySelector("[data-tgl]");
+      if (t){ t.classList.toggle("on", !r.hidden);
+              t.title = r.hidden ? "图标已隐藏，点击显示" : "隐藏桌面图标（不卸载，秒级生效）"; }
+    }
+    toast(r.hidden ? "桌面图标已隐藏，重进桌面生效" : "桌面图标已恢复显示");
+  }).catch(function(){ b.disabled = false; toast("切换失败", true); });
 }
 var CH_LABEL = {name:"名称", target:"地址", path:"路径", port:"本地端口", icon:"图标"};
 function chNames(list){
@@ -1765,7 +1933,7 @@ function saveSite(){
     hide("maskSite");
     if (r.job){
       toast("已保存：" + chNames(ch) + "，正在更新桌面应用");
-      watchJob(r.job, "更新「" + title + "」", true);
+      watchRow(cur.app, r.job);
     } else {
       toast("已保存：" + chNames(ch) + "，立即生效");
       setTimeout(function(){ location.reload(); }, 800);
@@ -1782,7 +1950,7 @@ function appOp(op){
   postJson("/app/op", {id:cur.id, op:o}).then(function(r){
     if (r.error){ toast(r.error, true); return; }
     hide("maskSite");
-    if (r.job) watchJob(r.job, titles[o] || "处理中", true);
+    if (r.job) watchRow(cur.app, r.job);
     else { toast("已提交"); setTimeout(function(){ location.reload(); }, 800); }
   }).catch(function(){ toast("操作失败", true); });
 }
@@ -2016,6 +2184,21 @@ function copyEl(id, btn){
 /* ---------- 事件 ---------- */
 $("sitesBox").addEventListener("click", function(e){
   if (e.target.closest("[data-open]")) return;
+  var tgl = e.target.closest("[data-tgl]");
+  if (tgl){
+    var row = tgl.closest(".row"), id = row.getAttribute("data-id");
+    tgl.disabled = true;
+    postJson("/app/op", {id:id, op:"toggle"}).then(function(r){
+      if (r.error){ toast(r.error, true); tgl.disabled = false; return; }
+      var on = !r.hidden;
+      tgl.classList.toggle("on", on);
+      row.classList.toggle("dim", !!r.hidden);
+      tgl.title = r.hidden ? "图标已隐藏，点击显示" : "隐藏桌面图标（不卸载，秒级生效）";
+      tgl.disabled = false;
+      toast(r.hidden ? "桌面图标已隐藏，重进桌面生效" : "桌面图标已恢复显示");
+    }).catch(function(){ toast("切换失败", true); tgl.disabled = false; });
+    return;
+  }
   var row = e.target.closest(".row");
   if (!row) return;
   openSite(row.getAttribute("data-id"));
@@ -2076,7 +2259,11 @@ def icon_or_make(app):
 
 
 def page_data(host):
-    """把运行态整理成前端要的一份 JSON：站点 + 临时通道 + 环境信息。"""
+    """把运行态整理成前端要的一份 JSON：站点 + 临时通道 + 环境信息。
+    每个站点带三格状态（图标 / 桌面应用 / 外网地址）与开关状态，
+    桌面应用与外网地址各做一次全量查询，不逐行跑命令。"""
+    apps = installed_apps()
+    svcmap = service_map()
     sites = []
     for s_ in _sites.values():
         h = _health.get(s_["id"]) or {}
@@ -2085,6 +2272,14 @@ def page_data(host):
             ver = int(os.path.getmtime(ip)) if ip else 0
         except OSError:
             ver = 0
+        fu, nodisp = svcmap.get(s_["app"] + ".Web", ("", False))
+        hidden = nodisp or bool(s_.get("disabled"))
+        job = None
+        jid = _site_jobs.get(s_["app"])
+        if jid and jid in JOBS:
+            j = JOBS[jid]
+            job = {"id": jid, "state": j["state"], "step": j["step"],
+                   "total": j["total"], "text": j["text"], "detail": j["detail"]}
         sites.append({
             "id": s_["id"], "name": s_["name"], "app": s_["app"],
             "host": s_.get("host") or "",
@@ -2092,7 +2287,10 @@ def page_data(host):
             "scheme": s_.get("scheme") or "http",
             "base_path": s_.get("base_path") or "",
             "local_port": s_.get("local_port") or 0,
-            "disabled": bool(s_.get("disabled")),
+            "disabled": hidden,
+            "hidden": hidden,
+            "stages": {"icon": bool(ip), "app": s_["app"] in apps, "pub": bool(fu)},
+            "job": job,
             "health": {"ok": h.get("ok"), "msg": h.get("msg") or ""},
             "local_url": "http://%s:%s/" % (host, s_.get("local_port") or 0),
             "public_url": public_url(s_["app"]),
@@ -2262,8 +2460,12 @@ class Admin(http.server.BaseHTTPRequestHandler):
                                               ensure_ascii=False),
                               "application/json; charset=utf-8")
         elif p == "/app/op":
-            err, jid = app_op(form.get("id", [""])[0], form.get("op", [""])[0])
-            return self._send(200, json.dumps({"error": err, "job": jid}, ensure_ascii=False),
+            sid0, op0 = form.get("id", [""])[0], form.get("op", [""])[0]
+            err, jid = app_op(sid0, op0)
+            st = _sites.get(sid0) or (TEMP if sid0 == "temp" else {})
+            return self._send(200, json.dumps({"error": err, "job": jid,
+                                               "hidden": bool(st.get("hidden"))},
+                                              ensure_ascii=False),
                               "application/json; charset=utf-8")
         elif p == "/icon/apply":
             app = form.get("app", [""])[0]
@@ -2613,8 +2815,23 @@ def save_site(sid, form):
 
 def app_op(sid, op):
     site = _sites.get(sid)
+    if site is None and sid == "temp":
+        site = TEMP
     if not site:
         return "站点不存在", None
+    if op == "toggle":
+        """秒级开关：隐藏/显示桌面图标（改 no_display，不卸载不重装）。
+        目标值以数据库当前状态取反，内存/文件都不参与判断，天然抗不同步。"""
+        cur_nd = service_map().get(svc(site["app"]), ("", False))[1]
+        target = not cur_nd
+        ok = set_no_display(svc(site["app"]), target)
+        if not ok:
+            return "切换失败，稍后重试", None
+        with _lock:
+            site["hidden"] = target
+            save_state()
+        sys.stderr.write("app %s no_display -> %s\n" % (site["app"], target))
+        return "", None
     if op == "disable":
         jid = job_new("停用「%s」" % site["name"], 2)
 
@@ -2634,11 +2851,13 @@ def app_op(sid, op):
         jid = job_new("启用「%s」" % site["name"])
         with _lock:
             site["disabled"] = False
+            site["hidden"] = False
             save_state()
         threading.Thread(target=install_app, args=(site, True, jid), daemon=True).start()
         return "", jid
     if op == "refresh":
         jid = job_new("刷新外网地址", 2)
+        _site_jobs[site["app"]] = jid
 
         def run_refresh():
             job_step(jid, "写入应用入口地址")
