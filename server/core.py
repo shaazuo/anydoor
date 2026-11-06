@@ -1125,7 +1125,13 @@ a{color:var(--pri);text-decoration:none}
 .dlg-h .x{margin-left:auto;width:30px;height:30px;border-radius:8px;border:0;background:transparent;
   color:var(--t2);cursor:pointer;display:grid;place-items:center;flex:none}
 .dlg-h .x:hover{background:var(--fill1);color:var(--t0)}
-.dlg-b{padding:6px 22px 4px;overflow:auto}
+.dlg-b{padding:6px 22px 4px;overflow:auto;overscroll-behavior:contain}
+.dlg-b::-webkit-scrollbar{width:8px}
+.dlg-b::-webkit-scrollbar-track{background:transparent}
+.dlg-b::-webkit-scrollbar-thumb{background:rgba(11,11,12,.16);border-radius:8px;
+  border:2px solid transparent;background-clip:content-box}
+.dlg-b::-webkit-scrollbar-thumb:hover{background:rgba(11,11,12,.3);background-clip:content-box;
+  border:2px solid transparent}
 .dlg-f{display:flex;align-items:center;gap:8px;padding:14px 22px 18px}
 .dlg-f .sp{margin-left:auto}
 .sec{margin-top:17px}
@@ -1142,6 +1148,34 @@ a{color:var(--pri);text-decoration:none}
 .deltext:hover{background:rgba(219,56,44,.07)}
 .warnbox{display:flex;gap:8px;padding:10px 12px;border-radius:8px;background:rgba(224,108,0,.07);
   color:#8a4b00;font-size:12px;line-height:1.6}
+
+/* ---------- 网址输入 / 识别结果 / 高级设置 ---------- */
+.urlrow{position:relative}
+.urlrow .inp{height:38px;font-size:14px;padding-right:36px}
+.urlrow .clr{position:absolute;right:6px;top:6px;width:26px;height:26px;border:0;border-radius:6px;
+  background:transparent;color:var(--t3);cursor:pointer;display:grid;place-items:center}
+.urlrow .clr:hover{background:var(--fill1);color:var(--t0)}
+.parsed{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;min-height:23px}
+.parsed .pl{font-size:11.5px;color:var(--t3);margin-right:2px}
+.pchip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:6px;
+  background:var(--fill0);color:var(--t1);font-size:11.5px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.pchip b{font-weight:500;color:var(--t0)}
+.pchip.scheme{background:var(--pri-l);color:var(--pri)}
+.pchip.scheme b{color:var(--pri)}
+.pchip.path{background:rgba(124,58,237,.09);color:#6d28d9}
+.pchip.path b{color:#6d28d9}
+.parsed .phint{font-size:11.5px;color:var(--t2);line-height:1.5}
+.adv{margin-top:15px;border-top:1px solid var(--card);padding-top:12px}
+.adv>summary{list-style:none;display:flex;align-items:center;gap:7px;cursor:pointer;
+  font-size:12.5px;color:var(--t1);user-select:none}
+.adv>summary::-webkit-details-marker{display:none}
+.adv>summary:hover{color:var(--pri)}
+.adv>summary .tw{width:14px;height:14px;flex:none;transition:transform .15s;color:var(--t3)}
+.adv[open]>summary .tw{transform:rotate(90deg)}
+.adv>summary .ah{color:var(--t3);font-size:11.5px;margin-left:2px}
+.adv-b{padding:14px 0 2px}
+.adv-note{font-size:11.5px;color:var(--t2);margin:0 0 12px;line-height:1.6}
 
 /* ---------- 图标编辑器 ---------- */
 .glyphs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -1318,14 +1352,30 @@ a{color:var(--pri);text-decoration:none}
     <div class="dlg-h"><div><h3>添加站点</h3><div class="sub">本地端口会自动分配，冲突自动加一</div></div>
       <button class="x" onclick="hide('maskAdd')"><svg width="16" height="16"><use href="#i-close"/></svg></button></div>
     <div class="dlg-b">
-      <div class="grid2" style="margin-top:16px">
-        <div class="field"><label>名称</label><input class="inp" id="a_name" placeholder="如 光猫" autocomplete="off"></div>
-        <div class="field"><label>地址</label><input class="inp mono" id="a_host" placeholder="192.168.1.1" autocomplete="off"></div>
-        <div class="field"><label>端口</label><input class="inp mono" id="a_port" value="80" autocomplete="off"></div>
-        <div class="field"><label>协议</label><div class="seg" id="a_seg"><button class="on" data-v="http">http</button><button data-v="https">https</button></div></div>
-        <div class="field" style="grid-column:1/-1"><label>路径（可空）</label><input class="inp mono" id="a_base" placeholder="如 /dist、/login，不需要就留空" autocomplete="off"></div>
+      <div class="field" style="margin-top:16px"><label>名称</label>
+        <input class="inp" id="a_name" placeholder="如 光猫（留空则用地址）" autocomplete="off"></div>
+      <div class="field" style="margin-top:12px"><label>网址</label>
+        <div class="urlrow">
+          <input class="inp mono" id="a_url" placeholder="粘贴网址或 IP:端口" autocomplete="off" spellcheck="false">
+          <button class="clr" id="a_urlClr" title="清空" onclick="clearUrl('a')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <div class="parsed" id="a_parsed"></div>
       </div>
-      <div class="warnbox" style="margin-top:16px">保存后会在飞牛桌面生成一个独立图标，首次安装约 20 秒。</div>
+
+      <details class="adv" id="a_adv">
+        <summary><svg class="tw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>高级设置<span class="ah">协议、端口、路径</span></summary>
+        <div class="adv-b">
+          <p class="adv-note">上面填网址后会自动识别；这里可以手动微调，改动后以这里为准。</p>
+          <div class="grid2">
+            <div class="field"><label>协议</label><div class="seg" id="a_seg"><button class="on" data-v="http">http</button><button data-v="https">https</button></div></div>
+            <div class="field"><label>目标端口</label><input class="inp mono" id="a_port" value="80" autocomplete="off"></div>
+            <div class="field"><label>主机地址</label><input class="inp mono" id="a_host" placeholder="192.168.1.1" autocomplete="off"></div>
+            <div class="field"><label>路径（可空）</label><input class="inp mono" id="a_base" placeholder="如 /dist" autocomplete="off"></div>
+          </div>
+        </div>
+      </details>
+
+      <div class="warnbox" style="margin-top:15px">保存后会在飞牛桌面生成一个独立图标，首次安装约 20 秒。</div>
     </div>
     <div class="dlg-f"><span class="sp"></span><button class="btn ghost" onclick="hide('maskAdd')">取消</button>
       <button class="btn primary" onclick="addSite()">添加</button></div>
@@ -1347,14 +1397,28 @@ a{color:var(--pri);text-decoration:none}
     <div class="dlg-b">
       <div class="sec">
         <div class="sec-t">基本设置</div>
-        <div class="grid2">
-          <div class="field"><label>名称</label><input class="inp" id="s_name"></div>
-          <div class="field"><label>地址</label><input class="inp mono" id="s_host"></div>
-          <div class="field"><label>目标端口</label><input class="inp mono" id="s_port"></div>
-          <div class="field"><label>协议</label><div class="seg" id="s_seg"><button data-v="http">http</button><button data-v="https">https</button></div></div>
-          <div class="field"><label>路径（可空）</label><input class="inp mono" id="s_base" placeholder="如 /dist"></div>
-          <div class="field"><label>本地端口</label><input class="inp mono" id="s_local"></div>
+        <div class="field"><label>名称</label><input class="inp" id="s_name"></div>
+        <div class="field" style="margin-top:12px"><label>网址</label>
+          <div class="urlrow">
+            <input class="inp mono" id="s_url" placeholder="粘贴网址或 IP:端口" autocomplete="off" spellcheck="false">
+            <button class="clr" id="s_urlClr" title="清空" onclick="clearUrl('s')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+          </div>
+          <div class="parsed" id="s_parsed"></div>
         </div>
+
+        <details class="adv" id="s_adv">
+          <summary><svg class="tw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>高级设置<span class="ah">协议、端口、路径、本地端口</span></summary>
+          <div class="adv-b">
+            <p class="adv-note">改网址会自动重新识别；若手动改了下面的字段，则以这里为准。</p>
+            <div class="grid2">
+              <div class="field"><label>协议</label><div class="seg" id="s_seg"><button data-v="http">http</button><button data-v="https">https</button></div></div>
+              <div class="field"><label>目标端口</label><input class="inp mono" id="s_port"></div>
+              <div class="field"><label>主机地址</label><input class="inp mono" id="s_host"></div>
+              <div class="field"><label>路径（可空）</label><input class="inp mono" id="s_base" placeholder="如 /dist"></div>
+              <div class="field"><label>本地端口</label><input class="inp mono" id="s_local"></div>
+            </div>
+          </div>
+        </details>
       </div>
 
       <div class="sec">
@@ -1522,12 +1586,105 @@ function renderSites(){
   $("sitesBox").innerHTML = out + "</div>";
 }
 
+/* ---------- 网址识别 ----------
+   主输入框只负责「粘贴/输入」，解析结果回填到高级字段；
+   提交时始终以高级字段的当前值为准，避免两套值互相打架。 */
+var urlHint = {a:"", s:""};
+
+function parseUrl(text){
+  var raw = (text || "").trim();
+  if (raw.length > 1){
+    var f = raw.charAt(0), l = raw.charAt(raw.length - 1);
+    if ((f === '"' && l === '"') || (f === "'" && l === "'")) raw = raw.slice(1, -1).trim();
+  }
+  var o = {scheme:"http", host:"", port:80, path:"", hint:""};
+  if (!raw) return o;
+  var low = raw.toLowerCase(), explicit = false;
+  if (low.indexOf("https://") === 0){ o.scheme = "https"; o.port = 443; raw = raw.slice(8); explicit = true; }
+  else if (low.indexOf("http://") === 0){ o.scheme = "http"; o.port = 80; raw = raw.slice(7); explicit = true; }
+  var q = raw.indexOf("?"), h = raw.indexOf("#");
+  if (q >= 0) raw = raw.slice(0, q);
+  if (h >= 0) raw = raw.slice(0, h);
+  var slash = raw.indexOf("/");
+  if (slash >= 0){ o.path = raw.slice(slash); raw = raw.slice(0, slash); }
+  while (o.path.length > 1 && o.path.charAt(o.path.length - 1) === "/") o.path = o.path.slice(0, -1);
+  if (o.path === "/") o.path = "";
+  var host = raw, port = null;
+  if (raw.charAt(0) === "["){
+    var rb = raw.indexOf("]");
+    if (rb > 0){ host = raw.slice(0, rb + 1); var rest = raw.slice(rb + 1); if (rest.charAt(0) === ":") port = rest.slice(1); }
+  } else {
+    var ci = raw.lastIndexOf(":");
+    if (ci >= 0){ host = raw.slice(0, ci); port = raw.slice(ci + 1); }
+  }
+  if (port !== null){
+    if (/^[0-9]+$/.test(port)) o.port = parseInt(port, 10);
+    else o.hint = "端口没认出来，已用默认端口，可在高级设置里改";
+  }
+  o.host = host.trim();
+  if (!explicit && (o.port === 443 || o.port === 8443)){
+    o.scheme = "https"; o.hint = "按 " + o.port + " 端口识别为 https";
+  }
+  return o;
+}
+function buildUrl(scheme, host, port, path){
+  var def = scheme === "https" ? 443 : 80;
+  var u = scheme + "://" + (host || "");
+  if (String(port) !== String(def) && port) u += ":" + port;
+  if (path){ if (path.charAt(0) !== "/") u += "/"; u += path; }
+  return u;
+}
+function renderParsed(pfx){
+  var host = $(pfx + "_host").value.trim();
+  var port = $(pfx + "_port").value.trim() || "80";
+  var scheme = getSeg(pfx + "_seg");
+  var path = $(pfx + "_base").value.trim();
+  if (path && path.charAt(0) !== "/") path = "/" + path;
+  var box = $(pfx + "_parsed");
+  if (!host){ box.innerHTML = '<span class="phint">支持网址、域名或 IP:端口，粘贴后自动识别协议、端口和路径</span>'; return; }
+  var h = '<span class="pl">识别为</span>'
+    + '<span class="pchip scheme"><b>' + esc(scheme) + '://</b></span>'
+    + '<span class="pchip">' + esc(host) + '</span>'
+    + '<span class="pchip">:<b>' + esc(port) + '</b></span>';
+  if (path) h += '<span class="pchip path">' + esc(path) + '</span>';
+  if (urlHint[pfx]) h += '<span class="phint">' + esc(urlHint[pfx]) + '</span>';
+  box.innerHTML = h;
+}
+function applyUrl(pfx){
+  var o = parseUrl($(pfx + "_url").value);
+  if (o.host){
+    $(pfx + "_host").value = o.host;
+    $(pfx + "_port").value = o.port;
+    $(pfx + "_base").value = o.path;
+    setSeg(pfx + "_seg", o.scheme);
+    urlHint[pfx] = o.hint;
+    if (pfx === "a" && !$("a_name").value.trim()) $("a_name").value = o.host;
+  } else {
+    urlHint[pfx] = "";
+  }
+  renderParsed(pfx);
+}
+function clearUrl(pfx){
+  $(pfx + "_url").value = ""; urlHint[pfx] = "";
+  renderParsed(pfx); $(pfx + "_url").focus();
+}
+["a","s"].forEach(function(pfx){
+  $(pfx + "_url").addEventListener("input", function(){ applyUrl(pfx); });
+  $(pfx + "_url").addEventListener("paste", function(){ setTimeout(function(){ applyUrl(pfx); }, 0); });
+  [pfx + "_host", pfx + "_port", pfx + "_base"].forEach(function(id){
+    $(id).addEventListener("input", function(){ urlHint[pfx] = ""; renderParsed(pfx); });
+  });
+});
+
 /* ---------- 添加 ---------- */
 function openAdd(){
-  $("a_name").value = ""; $("a_host").value = ""; $("a_port").value = "80"; $("a_base").value = "";
-  setSeg("a_seg", "http");
+  $("a_name").value = ""; $("a_url").value = "";
+  $("a_host").value = ""; $("a_port").value = "80"; $("a_base").value = "";
+  setSeg("a_seg", "http"); urlHint.a = "";
+  $("a_adv").open = false;
+  renderParsed("a");
   show("maskAdd");
-  setTimeout(function(){ $("a_name").focus(); }, 60);
+  setTimeout(function(){ $("a_url").focus(); }, 60);
 }
 function setSeg(id, v){
   var bs = $(id).querySelectorAll("button");
@@ -1541,13 +1698,16 @@ function getSeg(id){
   $(id).addEventListener("click", function(e){
     var b = e.target.closest("button"); if (!b) return;
     setSeg(id, b.getAttribute("data-v"));
+    renderParsed(id.charAt(0));
   });
 });
 function addSite(){
-  var name = $("a_name").value.trim(), host = $("a_host").value.trim();
-  if (!name || !host){ toast("名称和地址都要填", true); return; }
+  var host = $("a_host").value.trim();
+  if (!host){ toast("先填网址，或到高级设置里填主机地址", true); $("a_url").focus(); return; }
+  var name = $("a_name").value.trim() || host;
   postJson("/add", {name:name, host:host, port:$("a_port").value.trim() || "80",
-                    scheme:getSeg("a_seg"), base_path:$("a_base").value.trim()})
+                    scheme:getSeg("a_seg"), base_path:$("a_base").value.trim(),
+                    url:$("a_url").value.trim()})
   .then(function(r){
     if (r.error){ toast(r.error, true); return; }
     hide("maskAdd");
@@ -1570,6 +1730,9 @@ function openSite(id){
   $("s_port").value = cur.target_port; $("s_base").value = cur.base_path || "";
   $("s_local").value = cur.local_port;
   setSeg("s_seg", cur.scheme);
+  $("s_url").value = buildUrl(cur.scheme, cur.host, cur.target_port, cur.base_path || "");
+  urlHint.s = ""; $("s_adv").open = false;
+  renderParsed("s");
   $("s_pub").value = cur.public_url || "（未取到 Connect 域名）";
   $("s_loc").value = cur.local_url;
   $("s_pubOpen").href = cur.public_url || "#";
@@ -1593,7 +1756,8 @@ function saveSite(){
   var title = $("s_name").value.trim() || cur.name;
   postJson("/save", {id:cur.id, name:$("s_name").value, host:$("s_host").value,
     port:$("s_port").value, scheme:getSeg("s_seg"), base_path:$("s_base").value,
-    local_port:$("s_local").value, icon_changed: iconDirty ? "1" : "0"})
+    local_port:$("s_local").value, url:$("s_url").value,
+    icon_changed: iconDirty ? "1" : "0"})
   .then(function(r){
     if (r.error){ $("s_msg").textContent = r.error; toast(r.error, true); return; }
     var ch = r.changed || [];
@@ -1866,8 +2030,11 @@ document.addEventListener("keydown", function(e){
 document.addEventListener("click", function(e){
   if (e.target.classList && e.target.classList.contains("mask")) e.target.classList.add("hidden");
 });
-["a_name","a_host","a_port","a_base"].forEach(function(id){
+["a_name","a_url","a_host","a_port","a_base"].forEach(function(id){
   $(id).addEventListener("keydown", function(e){ if (e.key === "Enter") addSite(); });
+});
+["s_name","s_url","s_host","s_port","s_base","s_local"].forEach(function(id){
+  $(id).addEventListener("keydown", function(e){ if (e.key === "Enter") saveSite(); });
 });
 
 renderSites();
@@ -2066,11 +2233,16 @@ class Admin(http.server.BaseHTTPRequestHandler):
         p = self.path.split("?")[0]
         if p == "/add":
             name, host = form.get("name", [""])[0].strip(), form.get("host", [""])[0].strip()
-            if not name or not host:
-                return self._send(200, json.dumps({"error": "名称和地址都要填"}, ensure_ascii=False),
+            url = form.get("url", [""])[0].strip()
+            if not host and not url:
+                return self._send(200, json.dumps({"error": "请填上网址"}, ensure_ascii=False),
                                   "application/json; charset=utf-8")
             jid = add_site(name, host, form.get("port", ["80"])[0],
-                           form.get("scheme", ["http"])[0], form.get("base_path", [""])[0])
+                           form.get("scheme", ["http"])[0],
+                           form.get("base_path", [""])[0], url)
+            if not jid:
+                return self._send(200, json.dumps({"error": "网址看不懂，检查一下"}, ensure_ascii=False),
+                                  "application/json; charset=utf-8")
             return self._send(200, json.dumps({"error": "", "job": jid}, ensure_ascii=False),
                               "application/json; charset=utf-8")
         elif p == "/temp":
@@ -2160,21 +2332,21 @@ def _appname(sid):
     return "ad" + re.sub(r"[^a-z0-9]", "", (sid or "").lower())
 
 
-def add_site(name, host, port, scheme, base_path=""):
-    host = (host or "").strip().replace("http://", "").replace("https://", "").strip("/")
-    if not host:
-        return
+def add_site(name, host, port, scheme, base_path="", url=""):
     try:
         tport = int(port or 80)
     except ValueError:
         tport = 80
-    if ":" in host:                       # 地址里自带端口就用它
-        h, _, p = host.partition(":")
-        host, tport = h, int(p)
     base = (base_path or "").strip()
     if base and not base.startswith("/"):
         base = "/" + base
     base = base.rstrip("/")
+    host, tport, scheme, base = normalize_target(host, tport, scheme, base, url)
+    if not host:
+        return None
+    if ":" in host and not host.startswith("["):
+        h, _, p = host.partition(":")
+        host, tport = h, int(p) if p.isdigit() else tport
     with _lock:
         sid = slug(name or host)
         base_id = sid
@@ -2202,6 +2374,69 @@ def add_site(name, host, port, scheme, base_path=""):
 
 
 # ---------------- 临时通道 ----------------
+
+def parse_url(text):
+    """把用户粘贴的完整地址拆成 (scheme, host, port, base_path)。
+
+    支持：
+      https://10.10.20.60:443/dist   -> ('https', '10.10.20.60', 443, '/dist')
+      10.10.20.21:8099              -> ('http',  '10.10.20.21', 8099, '')
+      172.16.50.252:8090/portal     -> ('http',  '172.16.50.252', 8090, '/portal')
+      https://10.10.20.10/login?a=1 -> ('https', '10.10.20.10', 443, '/login')
+    不带协议但端口是 443/8443 时按 https 处理（界面上会提示，可在高级设置里改）。
+    """
+    raw = (text or "").strip().strip('"').strip("'").strip()
+    if not raw:
+        return None
+    scheme, explicit = "http", False
+    m = re.match(r"^(https?)://(.+)$", raw, re.I)
+    if m:
+        scheme, raw, explicit = m.group(1).lower(), m.group(2), True
+    raw = raw.split("#", 1)[0].split("?", 1)[0]
+    base = ""
+    if "/" in raw:
+        raw, tail = raw.split("/", 1)
+        base = "/" + tail.rstrip("/")
+    if base == "/":
+        base = ""
+    port = 443 if scheme == "https" else 80
+    host = raw
+    if raw.startswith("["):                       # IPv6 [::1]:8080
+        m6 = re.match(r"^(\[[0-9a-fA-F:]+\])(?::([0-9]+))?$", raw)
+        if not m6:
+            return None
+        host = m6.group(1)
+        if m6.group(2):
+            port = int(m6.group(2))
+    elif ":" in raw:
+        h, _, p = raw.rpartition(":")
+        host = h
+        if p.isdigit():
+            port = int(p)
+    host = host.strip()
+    if not host:
+        return None
+    if not explicit and port in (443, 8443):
+        scheme = "https"
+    return scheme, host, port, base
+
+
+def normalize_target(host, port, scheme, base, url=""):
+    """防御性归一化：前端已拆好字段时原样返回；若有人把完整 URL 塞进
+    host（旧前端 / 直接调接口），或只给了 url，就用 parse_url 拆开。
+    注意：前端用户在高级设置里手动改过字段时，那些字段优先，不会被 url 覆盖。"""
+    h = (host or "").strip()
+    if "://" in h or "/" in h:
+        t = parse_url(h)
+        if t:
+            return t[1], t[2], t[0], t[3]
+    elif not h and (url or "").strip():
+        t = parse_url(url)
+        if t:
+            return t[1], t[2], t[0], t[3]
+    return (h.replace("http://", "").replace("https://", "").strip("/"),
+            port, scheme, base)
+
 
 def parse_target(text):
     """把 '10.0.0.1:8080'、'http://x/y'、'https://x' 解析成 (host, port, scheme)。"""
@@ -2316,7 +2551,6 @@ def save_site(sid, form):
         return "站点不存在", None, []
     name = (form.get("name", [""])[0] or site["name"]).strip()
     host = (form.get("host", [""])[0] or "").strip()
-    host = host.replace("http://", "").replace("https://", "").strip("/")
     try:
         tport = int(form.get("port", [""])[0] or site["target_port"])
     except ValueError:
@@ -2332,12 +2566,17 @@ def save_site(sid, form):
         new_local = site["local_port"]
     icon_changed = form.get("icon_changed", ["0"])[0] == "1"
 
+    host, tport, scheme, base = normalize_target(
+        host, tport, scheme, base, form.get("url", [""])[0])
+    if not host:
+        return "主机地址不能为空", None, []
+    if ":" in host and not host.startswith("["):
+        h, _, p = host.partition(":")
+        host, tport = h, int(p) if p.isdigit() else tport
+
     port_changed = new_local != site["local_port"]
     if port_changed and (not port_free(new_local) or new_local == ADMIN_PORT):
         return "本地端口 %d 不可用" % new_local, None, []
-    if ":" in host:
-        h, _, p = host.partition(":")
-        host, tport = h, int(p) if p.isdigit() else tport
 
     changed = []
     if name != site["name"]:
